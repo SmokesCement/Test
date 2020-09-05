@@ -15,10 +15,371 @@
         </style>
         <script src="/jquery.js"></script>
         <script src="/socket.io.js"></script>
+        <script src="/md5.js"></script>
+        <script src="/rot.js"></script>
     </head>
     <body>
         <script type="text/javascript">
             var socket = io();
+            
+            function textField()
+            {
+                this.string = "";
+            };
+            
+            var Main = {};
+            
+            var options = {
+                width: 80,
+                height: 25,
+                spacing:1.1
+            };
+            
+            var mainState = {
+                login: 1,
+                game: 2
+            };
+            
+            var loginState = {
+                username: 1,
+                password: 2,
+                login: 3
+            };
+            
+            var input = {
+                keyCode: null,
+                charCode: null
+            };
+            
+            var _actor = {};
+            
+            var seed = -1;
+            
+            Main._input = function() {
+                var _keydownCallback = function(event) {
+                    Main.input.keyCode = null;
+                    
+                    if (event.keyCode == 8) {
+                        event.preventDefault();
+                        
+                        Main.input.keyCode = event.keyCode;
+                        
+                        Main._update();
+                    }
+                    
+                    if (event.keyCode == 13) {
+                        event.preventDefault();
+                        
+                        Main.input.keyCode = event.keyCode;
+                        
+                        Main._update();
+                    }
+                    
+                    if (event.keyCode >= 37 && event.keyCode <= 40) {
+                        event.preventDefault();
+                        
+                        Main.input.keyCode = event.keyCode;
+                        
+                        Main._update();
+                    }
+                    
+                    if (event.keyCode >= 97 && event.keyCode <= 105 && event.keyCode != 101) {
+                        event.preventDefault();
+                        
+                        Main.input.keyCode = event.keyCode;
+                        
+                        Main._update();
+                    }
+                };  
+                
+                var _keypressCallback = function(event) {
+                    Main.input.charCode = event.charCode;
+                    
+                    Main._update();
+                };
+                
+                window.addEventListener("keydown", _keydownCallback);
+                window.addEventListener("keypress", _keypressCallback);
+                
+                Main._update();
+            };
+            
+            Main._init = function() {
+                this.display = new ROT.Display(options);
+                document.body.appendChild(this.display.getContainer());
+                
+                this.mainState = mainState.login;
+                this.loginState = loginState.login;
+                this.input = input;
+                this.username = new textField();
+                this.password = new textField();
+                this.seed = seed;
+                
+                socket.on('login', function(data) {
+                    if (Main.mainState == mainState.login) {
+                        if (!data.authorised) {
+                            Main.username = new textField();
+                            Main.password = new textField();
+                            
+                            Main.loginState = loginState.username;
+                            
+                            Main.display.clear();
+                            
+                            Main._update();
+                        } else {
+                            Main.mainState = mainState.game;
+                            
+                            Main.display.clear();
+                            
+                            Main._update();
+                        }
+                    }
+                });
+                
+                socket.on('seed', function(data) {
+                    if (Main.mainState == mainState.game) {
+                        Main.seed = data.seed;
+                        
+                        ROT.RNG.setSeed(Main.seed);
+                        
+                        Main._generateMap();
+                        Main._drawWholeMap();
+                    }
+                });
+                
+                socket.on('move', function(data) {
+                    if (Main.mainState == mainState.game) {
+                        var name = data._name;
+                        
+                        if (!_actor[name]) {
+                            _actor[name] = {_x: -1, _y: -1, _char: "", _col: "#000"};
+                        }
+                        _actor[name]._x = data._x;
+                        _actor[name]._y = data._y;
+                        _actor[name]._char = data._char;
+                        _actor[name]._col = data._col;
+                        
+                        Main._drawWholeMap();
+                        
+                        for (var i in _actor) {
+                            Main.display.draw(_actor[i]._x, _actor[i]._y, _actor[i]._char, _actor[i]._col);
+                        }
+                    }
+                });
+                
+                Main._input();
+            };
+            
+            Main._messageBox = function(x, y, width, height, title) {
+                var title = "/" + title + "/";
+                for (var i = x; i < x + width; i++) {
+                    if (i < x + (width / 2) - (title.length / 2) || i >= x + (width / 2) + (title.length / 2)) {
+                        this.display.drawText(i,  y, "─");
+                    }
+                }
+                for (var i = x; i < x + width; i++) {
+                    this.display.drawText(i, y + height, "─");
+                }
+                for (var i = y; i < y + height; i++) {
+                    this.display.drawText(x,  i, "│");
+                }
+                for (var i = y; i < y + height; i++) {
+                    this.display.drawText(x + width,  i, "│");
+                }
+                this.display.drawText(x, y, "┌");
+                this.display.drawText(x + width, y, "┐");
+                this.display.drawText(x, y + height, "└");
+                this.display.drawText(x + width, y + height, "┘");
+                
+                this.display.drawText(x + (width / 2) - (title.length / 2) + 1, y, title);
+            };
+            
+            Main._textEntry = function(x, y, title, text, hide) {
+                var title = title + ": ";
+                
+                var cursor = ">";
+                
+                if (text.string.length > 0) {
+                    if (Main.input.keyCode == 8) {
+                        text.string = text.string.substring(0, text.string.length - 1);
+                        
+                        Main.display.draw(x + title.length + text.string.length, y, cursor);
+                        Main.display.draw(x + title.length + text.string.length + cursor.length, y, " ");
+                    }
+                    
+                    if (Main.input.keyCode == 13) {
+                        Main.display.draw(x + title.length + text.string.length, y, " ");
+                        
+                        Main.input.charCode = null;
+                        
+                        return true;
+                    }
+                }
+                
+                if (Main.input.keyCode != 8) {
+                    if (Main.input.charCode) {
+                        if (text.string.length < 16) {
+                            text.string = text.string.concat(String.fromCharCode(Main.input.charCode));
+                        }
+                    }
+                    
+                    if (!hide) {
+                        Main.display.drawText(x, y, title + text.string + cursor);
+                    } else {
+                        var hiddenString = "";
+                        
+                        for (var i = 0; i < text.string.length; i++) {
+                            hiddenString = hiddenString.concat("*");
+                        }
+                        
+                        Main.display.drawText(x, y, title + hiddenString + cursor);
+                    }
+                }
+            };
+            
+            Main._login = function() {
+                var width = options.width - 2
+                var height = options.height - 1
+                
+                this._messageBox(width / 4, 2, width / 2, 8, "Nomad");
+                
+                switch(Main.loginState) {
+                    case loginState.username:
+                        if (this._textEntry(width / 4 + 4, 4, "Username", Main.username)) {
+                            Main.loginState = loginState.password;
+                            
+                            Main._update();
+                        }
+                        break;
+                    case loginState.password:
+                        if (this._textEntry(width / 4 + 4, 5, "Password", Main.password, true)) {
+                            Main.password.string = md5(Main.password.string);
+                            
+                            Main.loginState = loginState.login;
+                            
+                            Main._update();
+                        }
+                        break;
+                    case loginState.login:
+                        socket.emit('login', {username: Main.username.string, password: Main.password.string});
+                        
+                        break;
+                }
+            };
+            
+            Main.map = {};
+            Main._generateMap = function() {
+                var digger = new ROT.Map.Digger();
+                
+                var digCallback = function(x, y, value) {
+                    var key = x + "," + y;
+					
+					if (value) {
+						this.map[key] = "#";
+					} else {
+						this.map[key] = ".";
+					}
+                }
+                digger.create(digCallback.bind(this));	
+				
+				for (var key in this.map) {
+                    var parts = key.split(",");
+                    var x = parseInt(parts[0]);
+                    var y = parseInt(parts[1]);
+                    
+					var key = x + "," + y;
+					
+					if (this.map[key] == "#") {
+						var wallcheck = true;
+						
+						for (i = 0; i < 8; i++) { 
+							var xoff = x;
+							var yoff = y;
+							
+							if (i == 0 || i == 3 || i == 5) {
+								xoff--;
+							} else if (i == 2 || i == 4 || i == 7) {
+								xoff++;
+							}
+							
+							if (i < 3) {
+								yoff--;
+							} else if (i > 4) {
+								yoff++;
+							}
+							
+							var keyoff = xoff + "," + yoff;
+							
+							if (this.map[keyoff] == ".") {
+								wallcheck = false;
+								
+								break;
+							}
+						}
+						
+						if (wallcheck) {
+							this.map[key] = "";
+						}
+					}
+                }
+            }
+            
+            Main._drawWholeMap = function() {
+                for (var key in this.map) {
+                    var parts = key.split(",");
+                    var x = parseInt(parts[0]);
+                    var y = parseInt(parts[1]);
+                    this.display.draw(x, y, this.map[key]);
+                }
+            }
+            
+            Main._map = function() {
+                if (Main.seed != -1) {
+                    Main._drawWholeMap();
+                } else {
+                    socket.emit('seed');
+                }
+            };
+            
+            Main._movement = function() {
+                var keyMap = {};
+                
+                keyMap[38] = 0;
+                keyMap[39] = 2;
+                keyMap[40] = 4;
+                keyMap[37] = 6;
+                
+                keyMap[104] = 0;
+                keyMap[105] = 1;
+                keyMap[102] = 2;
+                keyMap[99]  = 3;
+                keyMap[98]  = 4;
+                keyMap[97]  = 5;
+                keyMap[100] = 6;
+                keyMap[103] = 7;
+                
+                if (!(Main.input.keyCode in keyMap)) { return; }
+                
+                socket.emit('move', {dir: keyMap[Main.input.keyCode]});
+            };
+            
+            Main._game = function() {
+                Main._map();
+                Main._movement();
+            };
+            
+            Main._update = function() {
+                switch(Main.mainState) {
+                    case mainState.login:
+                        Main._login();
+                        break;
+                    case mainState.game:
+                        Main._game();
+                        break;
+                }
+            }
+            
+            Main._init();
         </script>
     </body>
 </html>
