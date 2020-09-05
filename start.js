@@ -22,6 +22,8 @@ app.get('/rot.js', function(req, res){
     res.sendFile(__dirname + "/lib/rot.js");
 });
 
+port = process.env.PORT || 80;
+
 //--- game ---
 
 var seed = -1;
@@ -189,6 +191,6 @@ io.on('connection', function(socket) {
     });
 });
 
-http.listen(3000, function(){
-    console.log('listening on *:3000');
+http.listen(port, function(){
+    console.log('listening on ' + port);
 });
