@@ -9,6 +9,6 @@
   },
   "scripts": {
     "start": "node src/index.js",
-    "build": "webpack" // This command will automatically run on deployment
+    "build": "webpack"
   }
 }
